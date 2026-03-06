@@ -7,6 +7,7 @@ import com.bse.feed.core.event.MarketDataEventBus;
 import com.bse.feed.gateway.FeedGatewayService;
 import com.bse.feed.gateway.decoder.FastMessageDecoder;
 import com.bse.feed.gateway.replay.OfflineReplayService;
+import com.bse.feed.gateway.tcp.SnapshotService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -131,6 +132,17 @@ public class AppConfig {
             FastMessageDecoder decoder,
             MarketDataEventBus eventBus) {
         return new OfflineReplayService(decoder, eventBus);
+    }
+
+    @Bean
+    public SnapshotService snapshotService(
+            FastMessageDecoder decoder,
+            MarketDataEventBus eventBus) {
+        return new SnapshotService(
+                snapshotHost, snapshotPort,
+                username, password,
+                "1", 2,  // applId, heartbeatInterval
+                decoder, eventBus);
     }
 
     // --- Lifecycle ---

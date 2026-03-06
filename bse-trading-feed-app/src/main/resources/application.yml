@@ -46,8 +46,8 @@ bse:
       # Feed B
       group-b: 239.255.190.100
       port-b: 30541
-      # Network interface (0.0.0.0 = default)
-      interface: 0.0.0.0
+      # Network interface (use server IP or interface name)
+      interface: 192.168.90.37
       # Receive buffer size
       receive-buffer-size: 65536
 

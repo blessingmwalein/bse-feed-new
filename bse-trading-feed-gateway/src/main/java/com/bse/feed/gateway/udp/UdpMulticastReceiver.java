@@ -108,18 +108,25 @@ public class UdpMulticastReceiver implements Runnable {
      */
     private void setupChannel() throws IOException {
         // Find appropriate network interface
-        NetworkInterface ni;
-        if (networkInterface != null && !networkInterface.isEmpty()) {
+        NetworkInterface ni = null;
+        if (networkInterface != null && !networkInterface.isEmpty()
+                && !"0.0.0.0".equals(networkInterface)) {
             ni = NetworkInterface.getByName(networkInterface);
             if (ni == null) {
                 ni = NetworkInterface.getByInetAddress(InetAddress.getByName(networkInterface));
             }
-        } else {
-            // Use the first non-loopback interface
+            if (ni == null) {
+                log.warn("Configured interface '{}' not found, falling back to auto-detect", networkInterface);
+            }
+        }
+
+        // Auto-detect: find first non-loopback, multicast-capable interface
+        if (ni == null) {
             ni = findDefaultInterface();
         }
 
         if (ni == null) {
+            logAvailableInterfaces();
             throw new IOException("No suitable network interface found for multicast");
         }
 
@@ -140,21 +147,65 @@ public class UdpMulticastReceiver implements Runnable {
 
     /**
      * Find the first suitable non-loopback, up, multicast-capable interface.
+     * Falls back to any up non-loopback IPv4 interface if none report multicast support.
      */
     private NetworkInterface findDefaultInterface() throws SocketException {
+        NetworkInterface fallback = null;
         var interfaces = NetworkInterface.getNetworkInterfaces();
         while (interfaces.hasMoreElements()) {
             NetworkInterface ni = interfaces.nextElement();
-            if (ni.isUp() && !ni.isLoopback() && ni.supportsMulticast()) {
-                var addrs = ni.getInetAddresses();
-                while (addrs.hasMoreElements()) {
-                    if (addrs.nextElement() instanceof Inet4Address) {
-                        return ni;
-                    }
+            if (!ni.isUp() || ni.isLoopback()) continue;
+
+            boolean hasIpv4 = false;
+            var addrs = ni.getInetAddresses();
+            while (addrs.hasMoreElements()) {
+                if (addrs.nextElement() instanceof Inet4Address) {
+                    hasIpv4 = true;
+                    break;
+                }
+            }
+
+            if (hasIpv4) {
+                if (ni.supportsMulticast()) {
+                    log.info("Auto-detected multicast interface: {} ({})", ni.getName(), ni.getDisplayName());
+                    return ni;
+                }
+                if (fallback == null) {
+                    fallback = ni;
                 }
             }
         }
-        return null;
+
+        // On Windows, supportsMulticast() can return false even when multicast works
+        if (fallback != null) {
+            log.warn("No interface reports multicast support; using fallback: {} ({})",
+                    fallback.getName(), fallback.getDisplayName());
+        }
+        return fallback;
+    }
+
+    /**
+     * Log all available network interfaces for diagnostic purposes.
+     */
+    private void logAvailableInterfaces() {
+        try {
+            var interfaces = NetworkInterface.getNetworkInterfaces();
+            log.error("Available network interfaces:");
+            while (interfaces.hasMoreElements()) {
+                NetworkInterface ni = interfaces.nextElement();
+                var addrs = ni.getInetAddresses();
+                StringBuilder addrStr = new StringBuilder();
+                while (addrs.hasMoreElements()) {
+                    if (addrStr.length() > 0) addrStr.append(", ");
+                    addrStr.append(addrs.nextElement().getHostAddress());
+                }
+                log.error("  {} ({}) - up={}, loopback={}, multicast={}, addrs=[{}]",
+                        ni.getName(), ni.getDisplayName(),
+                        ni.isUp(), ni.isLoopback(), ni.supportsMulticast(), addrStr);
+            }
+        } catch (SocketException e) {
+            log.error("Failed to enumerate network interfaces", e);
+        }
     }
 
     /**
