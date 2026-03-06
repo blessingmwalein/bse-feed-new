@@ -27,7 +27,7 @@ spring:
 bse:
   feed:
     # "live" = connect to BSE UDP multicast; "offline" = replay from captured file
-    mode: offline
+    mode: live
 
     # FAST template file path
     templates-path: classpath:templates/FastGWMsgConfig.xml
