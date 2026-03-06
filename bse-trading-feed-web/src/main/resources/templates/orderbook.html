@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BSE - Order Book</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0e17; color: #e0e6ed; }
+        .header { background: linear-gradient(135deg, #1a1f2e 0%, #0d1117 100%); padding: 16px 24px; border-bottom: 1px solid #21262d; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { font-size: 20px; color: #58a6ff; }
+        .nav a { color: #58a6ff; text-decoration: none; padding: 6px 12px; border-radius: 4px; font-size: 14px; }
+        .nav a:hover { background: #1c2128; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 20px; }
+        .symbol-selector { margin-bottom: 20px; }
+        .symbol-selector select { background: #161b22; color: #e6edf3; border: 1px solid #30363d; padding: 8px 16px; border-radius: 4px; font-size: 14px; }
+        .book-container { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        .book-side { background: #161b22; border: 1px solid #21262d; border-radius: 8px; overflow: hidden; }
+        .book-header { padding: 12px 16px; font-weight: 600; font-size: 14px; text-transform: uppercase; }
+        .book-header.bid { background: rgba(63, 185, 80, 0.1); color: #3fb950; border-bottom: 2px solid #3fb950; }
+        .book-header.offer { background: rgba(248, 81, 73, 0.1); color: #f85149; border-bottom: 2px solid #f85149; }
+        .book-table { width: 100%; border-collapse: collapse; }
+        .book-table th { padding: 8px 12px; font-size: 11px; color: #8b949e; text-transform: uppercase; text-align: right; border-bottom: 1px solid #21262d; }
+        .book-table td { padding: 6px 12px; font-size: 13px; font-family: 'Consolas', monospace; text-align: right; border-bottom: 1px solid rgba(33,38,45,0.5); }
+        .book-table .level { color: #8b949e; text-align: center; width: 30px; }
+        .bid-row td.price { color: #3fb950; }
+        .offer-row td.price { color: #f85149; }
+        .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+        .stat-card { background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 12px 16px; }
+        .stat-card .label { font-size: 11px; color: #8b949e; text-transform: uppercase; }
+        .stat-card .value { font-size: 20px; font-weight: 600; margin-top: 4px; font-family: 'Consolas', monospace; }
+        .stat-card .value.positive { color: #3fb950; }
+        .stat-card .value.negative { color: #f85149; }
+        .depth-bar { height: 3px; margin-top: 2px; border-radius: 1px; }
+        .depth-bar.bid { background: rgba(63, 185, 80, 0.3); }
+        .depth-bar.offer { background: rgba(248, 81, 73, 0.3); }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1 id="page-title">Order Book</h1>
+        <div class="nav">
+            <a href="/">Home</a>
+            <a href="/dashboard">Dashboard</a>
+            <a href="/replay">Replay</a>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="symbol-selector">
+            <select id="symbol-select" onchange="selectSymbol(this.value)">
+                <option value="">Select instrument...</option>
+            </select>
+            <span id="update-info" style="margin-left: 16px; font-size: 12px; color: #8b949e;"></span>
+        </div>
+
+        <!-- Statistics -->
+        <div class="stats-grid" id="stats-grid" style="display:none;">
+            <div class="stat-card"><div class="label">Last Price</div><div class="value" id="stat-last">-</div></div>
+            <div class="stat-card"><div class="label">Net Change</div><div class="value" id="stat-change">-</div></div>
+            <div class="stat-card"><div class="label">High</div><div class="value" id="stat-high">-</div></div>
+            <div class="stat-card"><div class="label">Low</div><div class="value" id="stat-low">-</div></div>
+            <div class="stat-card"><div class="label">Open</div><div class="value" id="stat-open">-</div></div>
+            <div class="stat-card"><div class="label">Prev Close</div><div class="value" id="stat-prev">-</div></div>
+            <div class="stat-card"><div class="label">Volume</div><div class="value" id="stat-volume">-</div></div>
+            <div class="stat-card"><div class="label">VWAP</div><div class="value" id="stat-vwap">-</div></div>
+        </div>
+
+        <!-- Order Book -->
+        <div class="book-container" id="book-container" style="display:none;">
+            <div class="book-side">
+                <div class="book-header bid">Bids</div>
+                <table class="book-table">
+                    <thead><tr><th>Lvl</th><th>Orders</th><th>Qty</th><th>Price</th></tr></thead>
+                    <tbody id="bid-tbody"></tbody>
+                </table>
+            </div>
+            <div class="book-side">
+                <div class="book-header offer">Offers</div>
+                <table class="book-table">
+                    <thead><tr><th>Price</th><th>Qty</th><th>Orders</th><th>Lvl</th></tr></thead>
+                    <tbody id="offer-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+    <script>
+        let currentSymbol = null;
+        let stompClient = null;
+        let subscription = null;
+
+        // Check URL params for symbol
+        const params = new URLSearchParams(window.location.search);
+        if (params.has('symbol')) {
+            currentSymbol = params.get('symbol');
+        }
+
+        function connect() {
+            const socket = new SockJS('/ws/market-data');
+            stompClient = Stomp.over(socket);
+            stompClient.debug = null;
+            stompClient.connect({}, function() {
+                if (currentSymbol) subscribeToSymbol(currentSymbol);
+            }, function() {
+                setTimeout(connect, 5000);
+            });
+        }
+
+        function subscribeToSymbol(symbol) {
+            if (subscription) subscription.unsubscribe();
+            subscription = stompClient.subscribe('/topic/orderbook/' + symbol, function(msg) {
+                const data = JSON.parse(msg.body);
+                renderOrderBook(data);
+            });
+        }
+
+        function selectSymbol(symbol) {
+            if (!symbol) return;
+            currentSymbol = symbol;
+            document.getElementById('page-title').textContent = 'Order Book — ' + symbol;
+            document.getElementById('stats-grid').style.display = 'grid';
+            document.getElementById('book-container').style.display = 'grid';
+            history.replaceState(null, '', '/orderbook?symbol=' + encodeURIComponent(symbol));
+            if (stompClient && stompClient.connected) subscribeToSymbol(symbol);
+            fetchOrderBook(symbol);
+        }
+
+        function fetchOrderBook(symbol) {
+            fetch('/api/orderbook/' + encodeURIComponent(symbol))
+                .then(r => r.json())
+                .then(renderOrderBook)
+                .catch(err => console.warn(err));
+        }
+
+        function renderOrderBook(data) {
+            // Stats
+            const fp = (v) => v !== null && v !== undefined ? Number(v).toFixed(4) : '-';
+            const fi = (v) => v !== null && v !== undefined ? Number(v).toLocaleString() : '-';
+
+            document.getElementById('stat-last').textContent = fp(data.lastPrice);
+            const changeEl = document.getElementById('stat-change');
+            if (data.netChange) {
+                changeEl.textContent = (data.netChange > 0 ? '+' : '') + fp(data.netChange) + 
+                    (data.percentChange ? ' (' + Number(data.percentChange).toFixed(2) + '%)' : '');
+                changeEl.className = 'value ' + (data.netChange > 0 ? 'positive' : 'negative');
+            } else {
+                changeEl.textContent = '-';
+                changeEl.className = 'value';
+            }
+            document.getElementById('stat-high').textContent = fp(data.highPrice);
+            document.getElementById('stat-low').textContent = fp(data.lowPrice);
+            document.getElementById('stat-open').textContent = fp(data.openPrice);
+            document.getElementById('stat-prev').textContent = fp(data.previousClose);
+            document.getElementById('stat-volume').textContent = fi(data.totalVolume);
+            document.getElementById('stat-vwap').textContent = fp(data.vwap);
+
+            // Find max qty for depth bars
+            let maxQty = 1;
+            (data.bids || []).concat(data.offers || []).forEach(l => {
+                if (l.quantity && l.quantity > maxQty) maxQty = l.quantity;
+            });
+
+            // Bids
+            let bidHtml = '';
+            (data.bids || []).forEach(l => {
+                if (!l.price && (!l.quantity || l.quantity == 0)) return;
+                const pct = l.quantity ? (l.quantity / maxQty * 100) : 0;
+                bidHtml += `<tr class="bid-row">
+                    <td class="level">${l.level}</td>
+                    <td>${l.orders || '-'}</td>
+                    <td>${l.quantity ? Number(l.quantity).toLocaleString() : '-'}</td>
+                    <td class="price">${l.price ? Number(l.price).toFixed(4) : '-'}</td>
+                </tr>`;
+            });
+            document.getElementById('bid-tbody').innerHTML = bidHtml || '<tr><td colspan="4" style="text-align:center;color:#8b949e;">No bids</td></tr>';
+
+            // Offers
+            let offerHtml = '';
+            (data.offers || []).forEach(l => {
+                if (!l.price && (!l.quantity || l.quantity == 0)) return;
+                offerHtml += `<tr class="offer-row">
+                    <td class="price">${l.price ? Number(l.price).toFixed(4) : '-'}</td>
+                    <td>${l.quantity ? Number(l.quantity).toLocaleString() : '-'}</td>
+                    <td>${l.orders || '-'}</td>
+                    <td class="level">${l.level}</td>
+                </tr>`;
+            });
+            document.getElementById('offer-tbody').innerHTML = offerHtml || '<tr><td colspan="4" style="text-align:center;color:#8b949e;">No offers</td></tr>';
+
+            document.getElementById('update-info').textContent = 'RptSeq: ' + (data.rptSeq || '-') + 
+                ' | Updated: ' + new Date().toLocaleTimeString();
+        }
+
+        function loadSymbols() {
+            fetch('/api/symbols')
+                .then(r => r.json())
+                .then(symbols => {
+                    const select = document.getElementById('symbol-select');
+                    select.innerHTML = '<option value="">Select instrument...</option>';
+                    symbols.forEach(s => {
+                        const opt = document.createElement('option');
+                        opt.value = s;
+                        opt.textContent = s;
+                        if (s === currentSymbol) opt.selected = true;
+                        select.appendChild(opt);
+                    });
+                    if (currentSymbol) selectSymbol(currentSymbol);
+                })
+                .catch(() => {});
+        }
+
+        connect();
+        loadSymbols();
+        setInterval(loadSymbols, 10000);
+        setInterval(() => { if (currentSymbol) fetchOrderBook(currentSymbol); }, 1000);
+    </script>
+</body>
+</html>

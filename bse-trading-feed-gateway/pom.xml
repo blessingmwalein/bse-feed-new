@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.bse.feed</groupId>
+        <artifactId>bse-trading-feed</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>bse-trading-feed-gateway</artifactId>
+    <name>BSE Trading Feed - Gateway</name>
+    <description>FAST decoder, UDP multicast listener, TCP snapshot/replay clients</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.bse.feed</groupId>
+            <artifactId>bse-trading-feed-core</artifactId>
+        </dependency>
+
+        <!-- OpenFAST - FAST 1.1 protocol decoder -->
+        <dependency>
+            <groupId>org.openfast</groupId>
+            <artifactId>openfast</artifactId>
+        </dependency>
+
+        <!-- Spring Boot for configuration + lifecycle -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter</artifactId>
+        </dependency>
+
+        <!-- Testing -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

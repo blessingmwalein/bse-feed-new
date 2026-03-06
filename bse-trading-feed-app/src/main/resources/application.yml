@@ -1,0 +1,133 @@
+# ===========================================================
+# BSE Trading Feed Application Configuration
+# Botswana Stock Exchange - Millennium Exchange FAST/FIX Feed
+# ===========================================================
+
+server:
+  port: 8080
+
+spring:
+  application:
+    name: bse-trading-feed
+  thymeleaf:
+    prefix: classpath:/templates/
+    suffix: .html
+    cache: false
+  datasource:
+    url: jdbc:sqlserver://192.168.3.201;databaseName=BO;encrypt=false;trustServerCertificate=true
+    username: bseussd
+    password: bseussd1234
+    driver-class-name: com.microsoft.sqlserver.jdbc.SQLServerDriver
+    hikari:
+      maximum-pool-size: 5
+      minimum-idle: 1
+      connection-timeout: 10000
+
+# --- BSE Feed Configuration ---
+bse:
+  feed:
+    # "live" = connect to BSE UDP multicast; "offline" = replay from captured file
+    mode: offline
+
+    # FAST template file path
+    templates-path: classpath:templates/FastGWMsgConfig.xml
+
+    # Server ApplID
+    appl-id: 1
+
+    # Heartbeat interval (seconds)
+    heartbeat-interval: 2
+
+    # --- UDP Multicast Configuration ---
+    udp:
+      # Feed A
+      group-a: 239.255.190.100
+      port-a: 30540
+      # Feed B
+      group-b: 239.255.190.100
+      port-b: 30541
+      # Network interface (0.0.0.0 = default)
+      interface: 0.0.0.0
+      # Receive buffer size
+      receive-buffer-size: 65536
+
+    # --- TCP Configuration ---
+    tcp:
+      # Credentials
+      username: ESC_FAST
+      password: Exchange2026!
+      comp-id: MDG
+      # Snapshot channel
+      snapshot:
+        host: 192.168.90.18
+        port: 540
+      # Replay channel
+      replay:
+        host: 192.168.90.18
+        port: 540
+
+    # --- Offline Replay ---
+    offline:
+      data-path: classpath:offline_data.txt
+      delay-ms: 50
+
+    # --- SQL Price Writer ---
+    sql:
+      enabled: true
+      table: "[BO].[dbo].[CompanyPrices]"
+      batch-interval-ms: 1000
+
+# --- Spring Actuator ---
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+# --- Logging ---
+logging:
+  level:
+    root: INFO
+    com.bse.feed: DEBUG
+    com.bse.feed.gateway.decoder: INFO
+    com.bse.feed.gateway.udp: INFO
+    org.openfast: WARN
+  file:
+    name: logs/bse-trading-feed.log
+  logback:
+    rollingpolicy:
+      max-file-size: 50MB
+      max-history: 30
+
+---
+# ===========================================================
+# PRODUCTION PROFILE
+# ===========================================================
+spring:
+  config:
+    activate:
+      on-profile: production
+
+bse:
+  feed:
+    mode: live
+    udp:
+      group-a: 239.255.181.100
+      port-a: 5540
+      group-b: 239.255.181.101
+      port-b: 5541
+    tcp:
+      snapshot:
+        host: 192.168.4.22
+        port: 5521
+      replay:
+        host: 192.168.4.22
+        port: 5520
+
+logging:
+  level:
+    root: INFO
+    com.bse.feed: INFO

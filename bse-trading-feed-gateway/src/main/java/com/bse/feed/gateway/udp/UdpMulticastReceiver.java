@@ -1,0 +1,241 @@
+package com.bse.feed.gateway.udp;
+
+import com.bse.feed.core.engine.SequenceTracker;
+import com.bse.feed.core.event.MarketDataEvent;
+import com.bse.feed.core.event.MarketDataEventBus;
+import com.bse.feed.core.model.FeedStatus;
+import com.bse.feed.gateway.decoder.FastMessageDecoder;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.net.*;
+import java.nio.ByteBuffer;
+import java.nio.channels.DatagramChannel;
+import java.nio.channels.MembershipKey;
+import java.time.Instant;
+
+/**
+ * UDP Multicast listener for BSE FAST-UDP market data feed.
+ * Supports Feed A and Feed B with automatic duplicate detection.
+ *
+ * BSE Configuration:
+ *   Test:       239.255.190.100:30540 (Feed A), port 30541 (Feed B)
+ *   Production: 239.255.181.100:5540 (Feed A), 239.255.181.101:5541 (Feed B)
+ */
+public class UdpMulticastReceiver implements Runnable {
+
+    private static final Logger log = LoggerFactory.getLogger(UdpMulticastReceiver.class);
+    private static final int BUFFER_SIZE = 65536;  // Max UDP packet size
+
+    private final String feedName;           // "FeedA" or "FeedB"
+    private final String multicastGroup;     // e.g. "239.255.190.100"
+    private final int port;                  // e.g. 30540
+    private final String networkInterface;   // e.g. "eth0" or null for default
+
+    private final FastMessageDecoder decoder;
+    private final MarketDataEventBus eventBus;
+    private final SequenceTracker sequenceTracker;
+    private final FeedStatus feedStatus;
+
+    private volatile boolean running = false;
+    private DatagramChannel channel;
+    private MembershipKey membershipKey;
+
+    public UdpMulticastReceiver(String feedName, String multicastGroup, int port,
+                                 String networkInterface, FastMessageDecoder decoder,
+                                 MarketDataEventBus eventBus, SequenceTracker sequenceTracker) {
+        this.feedName = feedName;
+        this.multicastGroup = multicastGroup;
+        this.port = port;
+        this.networkInterface = networkInterface;
+        this.decoder = decoder;
+        this.eventBus = eventBus;
+        this.sequenceTracker = sequenceTracker;
+        this.feedStatus = new FeedStatus("UDP-" + feedName);
+    }
+
+    /**
+     * Start receiving multicast data in the current thread.
+     */
+    @Override
+    public void run() {
+        log.info("Starting UDP multicast receiver: {} on {}:{}", feedName, multicastGroup, port);
+        running = true;
+
+        try {
+            setupChannel();
+            feedStatus.setState(FeedStatus.ConnectionState.CONNECTED);
+            feedStatus.setConnectionTime(Instant.now());
+
+            ByteBuffer buffer = ByteBuffer.allocateDirect(BUFFER_SIZE);
+
+            while (running) {
+                buffer.clear();
+                SocketAddress source = channel.receive(buffer);
+
+                if (source != null) {
+                    buffer.flip();
+                    int length = buffer.remaining();
+
+                    byte[] data = new byte[length];
+                    buffer.get(data);
+
+                    feedStatus.setLastMessageTime(Instant.now());
+                    feedStatus.incrementMessagesReceived();
+                    feedStatus.setState(FeedStatus.ConnectionState.RECEIVING);
+
+                    processPacket(data);
+                }
+            }
+        } catch (IOException e) {
+            if (running) {
+                log.error("UDP receiver {} error: {}", feedName, e.getMessage(), e);
+                feedStatus.setState(FeedStatus.ConnectionState.ERROR);
+                feedStatus.setLastError(e.getMessage());
+                feedStatus.setLastErrorTime(Instant.now());
+            }
+        } finally {
+            cleanup();
+        }
+
+        log.info("UDP multicast receiver {} stopped", feedName);
+    }
+
+    /**
+     * Set up the NIO multicast channel.
+     */
+    private void setupChannel() throws IOException {
+        // Find appropriate network interface
+        NetworkInterface ni;
+        if (networkInterface != null && !networkInterface.isEmpty()) {
+            ni = NetworkInterface.getByName(networkInterface);
+            if (ni == null) {
+                ni = NetworkInterface.getByInetAddress(InetAddress.getByName(networkInterface));
+            }
+        } else {
+            // Use the first non-loopback interface
+            ni = findDefaultInterface();
+        }
+
+        if (ni == null) {
+            throw new IOException("No suitable network interface found for multicast");
+        }
+
+        log.info("Using network interface: {} ({})", ni.getName(), ni.getDisplayName());
+
+        InetAddress groupAddr = InetAddress.getByName(multicastGroup);
+
+        channel = DatagramChannel.open(StandardProtocolFamily.INET);
+        channel.setOption(StandardSocketOptions.SO_REUSEADDR, true);
+        channel.setOption(StandardSocketOptions.IP_MULTICAST_IF, ni);
+        channel.bind(new InetSocketAddress(port));
+
+        membershipKey = channel.join(groupAddr, ni);
+
+        log.info("Joined multicast group {}:{} on interface {}",
+                multicastGroup, port, ni.getName());
+    }
+
+    /**
+     * Find the first suitable non-loopback, up, multicast-capable interface.
+     */
+    private NetworkInterface findDefaultInterface() throws SocketException {
+        var interfaces = NetworkInterface.getNetworkInterfaces();
+        while (interfaces.hasMoreElements()) {
+            NetworkInterface ni = interfaces.nextElement();
+            if (ni.isUp() && !ni.isLoopback() && ni.supportsMulticast()) {
+                var addrs = ni.getInetAddresses();
+                while (addrs.hasMoreElements()) {
+                    if (addrs.nextElement() instanceof Inet4Address) {
+                        return ni;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Process a received UDP packet containing one or more FAST messages.
+     */
+    private void processPacket(byte[] data) {
+        long startNanos = System.nanoTime();
+        try {
+            String feedSource = feedName.contains("A") ? "A" : "B";
+            MarketDataEvent event = decoder.decode(data, feedSource);
+
+            if (event == null) {
+                feedStatus.incrementDecodeErrors();
+                return;
+            }
+
+            // Sequence check (Feed A/B dedup)
+            boolean shouldProcess = sequenceTracker.processSequence(
+                    event.getApplId(), event.getApplSeqNum());
+
+            if (!shouldProcess) {
+                feedStatus.incrementDuplicates();
+                return;
+            }
+
+            // Update feed status counters
+            switch (event.getEventType()) {
+                case HEARTBEAT -> feedStatus.incrementHeartbeats();
+                case SNAPSHOT -> feedStatus.incrementSnapshots();
+                case INCREMENTAL_REFRESH -> feedStatus.incrementIncrementals();
+                case SECURITY_DEFINITION -> feedStatus.incrementSecurityDefinitions();
+                case SECURITY_STATUS -> feedStatus.incrementTradingStatuses();
+                default -> {}
+            }
+
+            feedStatus.setLastSequenceNumber(event.getApplSeqNum());
+
+            // Publish to event bus
+            eventBus.publish(event);
+
+        } catch (Exception e) {
+            feedStatus.incrementDecodeErrors();
+            feedStatus.setLastError(e.getMessage());
+            feedStatus.setLastErrorTime(Instant.now());
+            log.error("Error processing packet on {}: {}", feedName, e.getMessage(), e);
+        } finally {
+            long decodeTimeNanos = System.nanoTime() - startNanos;
+            double decodeTimeMs = decodeTimeNanos / 1_000_000.0;
+            // Simple running average
+            double avg = feedStatus.getAvgDecodeTimeMs();
+            feedStatus.setAvgDecodeTimeMs(avg * 0.99 + decodeTimeMs * 0.01);
+            if (decodeTimeNanos / 1_000_000 > feedStatus.getMaxDecodeTimeMs()) {
+                feedStatus.setMaxDecodeTimeMs(decodeTimeNanos / 1_000_000);
+            }
+        }
+    }
+
+    /**
+     * Stop the receiver gracefully.
+     */
+    public void stop() {
+        running = false;
+        cleanup();
+    }
+
+    private void cleanup() {
+        try {
+            if (membershipKey != null) {
+                membershipKey.drop();
+                membershipKey = null;
+            }
+            if (channel != null && channel.isOpen()) {
+                channel.close();
+            }
+            feedStatus.setState(FeedStatus.ConnectionState.DISCONNECTED);
+        } catch (IOException e) {
+            log.warn("Error closing channel: {}", e.getMessage());
+        }
+    }
+
+    public boolean isRunning() { return running; }
+    public FeedStatus getFeedStatus() { return feedStatus; }
+    public String getFeedName() { return feedName; }
+}

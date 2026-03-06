@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.bse.feed</groupId>
+    <artifactId>bse-trading-feed</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
+    <name>BSE Trading Feed</name>
+    <description>
+        Botswana Stock Exchange Market Data Gateway.
+        Connects to BSE Millennium Exchange FAST/FIX feed over UDP multicast,
+        decodes FAST 1.1 messages, maintains order book, and provides a web dashboard.
+    </description>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.4.3</version>
+        <relativePath/>
+    </parent>
+
+    <modules>
+        <module>bse-trading-feed-core</module>
+        <module>bse-trading-feed-gateway</module>
+        <module>bse-trading-feed-web</module>
+        <module>bse-trading-feed-app</module>
+    </modules>
+
+    <properties>
+        <java.version>17</java.version>
+        <maven.compiler.source>17</maven.compiler.source>
+        <maven.compiler.target>17</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+        <!-- Dependency versions -->
+        <openfast.version>1.1.1</openfast.version>
+        <quickfixj.version>2.3.1</quickfixj.version>
+        <mssql-jdbc.version>12.8.1.jre11</mssql-jdbc.version>
+        <disruptor.version>4.0.0</disruptor.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- Internal modules -->
+            <dependency>
+                <groupId>com.bse.feed</groupId>
+                <artifactId>bse-trading-feed-core</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.bse.feed</groupId>
+                <artifactId>bse-trading-feed-gateway</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.bse.feed</groupId>
+                <artifactId>bse-trading-feed-web</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+
+            <!-- OpenFAST - FAST 1.1 protocol decoder -->
+            <dependency>
+                <groupId>org.openfast</groupId>
+                <artifactId>openfast</artifactId>
+                <version>${openfast.version}</version>
+            </dependency>
+
+            <!-- QuickFIX/J - FIX session layer -->
+            <dependency>
+                <groupId>org.quickfixj</groupId>
+                <artifactId>quickfixj-core</artifactId>
+                <version>${quickfixj.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.quickfixj</groupId>
+                <artifactId>quickfixj-messages-fix50sp2</artifactId>
+                <version>${quickfixj.version}</version>
+            </dependency>
+
+            <!-- SQL Server JDBC -->
+            <dependency>
+                <groupId>com.microsoft.sqlserver</groupId>
+                <artifactId>mssql-jdbc</artifactId>
+                <version>${mssql-jdbc.version}</version>
+            </dependency>
+
+            <!-- LMAX Disruptor for high-performance event bus -->
+            <dependency>
+                <groupId>com.lmax</groupId>
+                <artifactId>disruptor</artifactId>
+                <version>${disruptor.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <source>17</source>
+                    <target>17</target>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

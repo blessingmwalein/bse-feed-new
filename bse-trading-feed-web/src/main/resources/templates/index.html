@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BSE Market Data Gateway</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0e17; color: #e0e6ed; }
+        .header { background: linear-gradient(135deg, #1a1f2e 0%, #0d1117 100%); padding: 16px 24px; border-bottom: 1px solid #21262d; display: flex; justify-content: space-between; align-items: center; }
+        .header h1 { font-size: 20px; color: #58a6ff; }
+        .header .status { display: flex; gap: 16px; align-items: center; }
+        .status-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; margin-right: 6px; }
+        .status-dot.green { background: #3fb950; box-shadow: 0 0 6px #3fb950; }
+        .status-dot.red { background: #f85149; box-shadow: 0 0 6px #f85149; }
+        .status-dot.yellow { background: #d29922; box-shadow: 0 0 6px #d29922; }
+        .container { max-width: 1600px; margin: 0 auto; padding: 20px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
+        .card { background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 16px; }
+        .card h3 { color: #58a6ff; margin-bottom: 12px; font-size: 16px; }
+        .stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+        .stat-item { padding: 8px; background: #0d1117; border-radius: 4px; }
+        .stat-label { font-size: 11px; color: #8b949e; text-transform: uppercase; }
+        .stat-value { font-size: 18px; font-weight: 600; color: #e6edf3; }
+        .stat-value.positive { color: #3fb950; }
+        .stat-value.negative { color: #f85149; }
+        .symbols-table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+        .symbols-table th { text-align: left; padding: 8px 12px; border-bottom: 2px solid #21262d; color: #8b949e; font-size: 12px; text-transform: uppercase; }
+        .symbols-table td { padding: 8px 12px; border-bottom: 1px solid #21262d; font-size: 13px; }
+        .symbols-table tr:hover { background: #1c2128; cursor: pointer; }
+        .symbols-table .price { font-family: 'Consolas', monospace; }
+        .feed-status { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; margin-bottom: 20px; }
+        .feed-card { background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 16px; }
+        .feed-card h4 { color: #c9d1d9; margin-bottom: 8px; }
+        .metric { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; }
+        .metric .label { color: #8b949e; }
+        .metric .value { color: #e6edf3; font-family: 'Consolas', monospace; }
+        #update-time { font-size: 12px; color: #8b949e; }
+        .nav { display: flex; gap: 12px; }
+        .nav a { color: #58a6ff; text-decoration: none; padding: 6px 12px; border-radius: 4px; font-size: 14px; }
+        .nav a:hover { background: #1c2128; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div>
+            <h1>BSE Market Data Gateway</h1>
+            <span id="update-time">Connecting...</span>
+        </div>
+        <div class="status">
+            <div class="nav">
+                <a href="/dashboard">Dashboard</a>
+                <a href="/orderbook">Order Book</a>
+                <a href="/replay">Replay</a>
+            </div>
+            <span><span class="status-dot" id="connection-dot"></span><span id="connection-text">Disconnected</span></span>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Feed Status -->
+        <div class="feed-status" id="feed-status">
+            <div class="feed-card">
+                <h4>Loading feed status...</h4>
+            </div>
+        </div>
+
+        <!-- Summary Cards -->
+        <div class="grid" style="margin-bottom: 20px;">
+            <div class="card">
+                <h3>Instruments</h3>
+                <div class="stat-value" id="instrument-count">0</div>
+            </div>
+            <div class="card">
+                <h3>Total Messages</h3>
+                <div class="stat-value" id="total-messages">0</div>
+            </div>
+            <div class="card">
+                <h3>Gaps Detected</h3>
+                <div class="stat-value" id="total-gaps">0</div>
+            </div>
+            <div class="card">
+                <h3>Decode Errors</h3>
+                <div class="stat-value" id="total-errors">0</div>
+            </div>
+        </div>
+
+        <!-- Instruments Table -->
+        <div class="card">
+            <h3>Active Instruments</h3>
+            <table class="symbols-table">
+                <thead>
+                    <tr>
+                        <th>Symbol</th>
+                        <th>Last Price</th>
+                        <th>Change</th>
+                        <th>%Change</th>
+                        <th>Best Bid</th>
+                        <th>Best Offer</th>
+                        <th>Volume</th>
+                        <th>Trades</th>
+                        <th>RptSeq</th>
+                    </tr>
+                </thead>
+                <tbody id="instruments-tbody">
+                    <tr><td colspan="9" style="text-align:center; color:#8b949e;">Waiting for data...</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+    <script>
+        let stompClient = null;
+        const orderBooks = {};
+
+        function connect() {
+            const socket = new SockJS('/ws/market-data');
+            stompClient = Stomp.over(socket);
+            stompClient.debug = null; // Disable debug logging
+
+            stompClient.connect({}, function(frame) {
+                document.getElementById('connection-dot').className = 'status-dot green';
+                document.getElementById('connection-text').textContent = 'Connected';
+
+                // Subscribe to order book updates
+                stompClient.subscribe('/topic/orderbook/updated', function(msg) {
+                    const symbols = JSON.parse(msg.body);
+                    symbols.forEach(sym => fetchOrderBook(sym));
+                });
+            }, function(error) {
+                document.getElementById('connection-dot').className = 'status-dot red';
+                document.getElementById('connection-text').textContent = 'Disconnected';
+                setTimeout(connect, 5000);
+            });
+        }
+
+        function fetchOrderBook(symbol) {
+            fetch('/api/orderbook/' + encodeURIComponent(symbol))
+                .then(r => r.json())
+                .then(data => {
+                    orderBooks[symbol] = data;
+                    updateTable();
+                })
+                .catch(err => console.warn('Failed to fetch', symbol, err));
+        }
+
+        function updateTable() {
+            const tbody = document.getElementById('instruments-tbody');
+            const symbols = Object.keys(orderBooks).sort();
+
+            if (symbols.length === 0) return;
+
+            let html = '';
+            symbols.forEach(sym => {
+                const b = orderBooks[sym];
+                const changeClass = b.netChange > 0 ? 'positive' : (b.netChange < 0 ? 'negative' : '');
+                html += `<tr onclick="window.location='/orderbook?symbol=${sym}'">
+                    <td><strong>${sym}</strong></td>
+                    <td class="price">${formatPrice(b.lastPrice)}</td>
+                    <td class="price ${changeClass}">${formatPrice(b.netChange)}</td>
+                    <td class="price ${changeClass}">${b.percentChange ? b.percentChange.toFixed(2) + '%' : '-'}</td>
+                    <td class="price">${formatPrice(b.bestBid)}</td>
+                    <td class="price">${formatPrice(b.bestOffer)}</td>
+                    <td class="price">${b.totalVolume ? Number(b.totalVolume).toLocaleString() : '-'}</td>
+                    <td>${b.totalTrades || '-'}</td>
+                    <td>${b.rptSeq || '-'}</td>
+                </tr>`;
+            });
+            tbody.innerHTML = html;
+
+            document.getElementById('instrument-count').textContent = symbols.length;
+            document.getElementById('update-time').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+        }
+
+        function formatPrice(val) {
+            if (val === null || val === undefined) return '-';
+            return Number(val).toFixed(4);
+        }
+
+        function fetchStatus() {
+            fetch('/api/status')
+                .then(r => r.json())
+                .then(statuses => {
+                    let html = '';
+                    let totalMsgs = 0, totalGaps = 0, totalErrors = 0;
+
+                    statuses.forEach(s => {
+                        totalMsgs += s.totalMessages;
+                        totalGaps += s.totalGaps;
+                        totalErrors += s.decodeErrors;
+
+                        const dotClass = s.state === 'RECEIVING' ? 'green' : (s.state === 'CONNECTED' ? 'yellow' : 'red');
+                        html += `<div class="feed-card">
+                            <h4><span class="status-dot ${dotClass}"></span>${s.channelName}</h4>
+                            <div class="metric"><span class="label">State</span><span class="value">${s.state}</span></div>
+                            <div class="metric"><span class="label">Messages</span><span class="value">${s.totalMessages.toLocaleString()}</span></div>
+                            <div class="metric"><span class="label">Last Seq</span><span class="value">${s.lastSequence}</span></div>
+                            <div class="metric"><span class="label">Heartbeats</span><span class="value">${s.heartbeats}</span></div>
+                            <div class="metric"><span class="label">Incrementals</span><span class="value">${s.incrementals}</span></div>
+                            <div class="metric"><span class="label">Gaps</span><span class="value">${s.totalGaps}</span></div>
+                            <div class="metric"><span class="label">Avg Decode</span><span class="value">${s.avgDecodeTimeMs.toFixed(3)} ms</span></div>
+                        </div>`;
+                    });
+
+                    document.getElementById('feed-status').innerHTML = html;
+                    document.getElementById('total-messages').textContent = totalMsgs.toLocaleString();
+                    document.getElementById('total-gaps').textContent = totalGaps;
+                    document.getElementById('total-errors').textContent = totalErrors;
+                })
+                .catch(err => console.warn('Status fetch failed', err));
+        }
+
+        // Initial load
+        connect();
+        fetchStatus();
+        fetch('/api/orderbooks').then(r => r.json()).then(books => {
+            books.forEach(b => { orderBooks[b.symbol] = b; });
+            updateTable();
+        }).catch(() => {});
+
+        // Periodic refresh
+        setInterval(fetchStatus, 5000);
+        setInterval(() => {
+            fetch('/api/orderbooks').then(r => r.json()).then(books => {
+                books.forEach(b => { orderBooks[b.symbol] = b; });
+                updateTable();
+            }).catch(() => {});
+        }, 2000);
+    </script>
+</body>
+</html>
