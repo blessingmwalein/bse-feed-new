@@ -3,6 +3,7 @@ package com.bse.feed.gateway;
 import com.bse.feed.core.engine.InstrumentRegistry;
 import com.bse.feed.core.engine.OrderBookManager;
 import com.bse.feed.core.engine.SequenceTracker;
+import com.bse.feed.core.event.ActivityLog;
 import com.bse.feed.core.event.MarketDataEventBus;
 import com.bse.feed.core.model.FeedStatus;
 import com.bse.feed.gateway.decoder.FastMessageDecoder;
@@ -48,6 +49,7 @@ public class FeedGatewayService {
     private Thread feedAThread;
     private Thread feedBThread;
 
+    private ActivityLog activityLog;
     private volatile boolean running = false;
 
     /** No-arg constructor - components will be created in initialize(). */
@@ -133,10 +135,12 @@ public class FeedGatewayService {
         feedAReceiver = new UdpMulticastReceiver(
                 "FeedA", multicastGroupFeedA, portFeedA, networkInterface,
                 decoder, eventBus, sequenceTracker);
+        if (activityLog != null) feedAReceiver.setActivityLog(activityLog);
 
         feedBReceiver = new UdpMulticastReceiver(
                 "FeedB", multicastGroupFeedB, portFeedB, networkInterface,
                 decoder, eventBus, sequenceTracker);
+        if (activityLog != null) feedBReceiver.setActivityLog(activityLog);
 
         log.info("Feed Gateway Service initialized");
     }
@@ -210,6 +214,7 @@ public class FeedGatewayService {
     public void setMulticastGroupFeedB(String multicastGroupFeedB) { this.multicastGroupFeedB = multicastGroupFeedB; }
     public void setPortFeedB(int portFeedB) { this.portFeedB = portFeedB; }
     public void setNetworkInterface(String networkInterface) { this.networkInterface = networkInterface; }
+    public void setActivityLog(ActivityLog activityLog) { this.activityLog = activityLog; }
 
     // ==================== ACCESSORS ====================
 
@@ -218,5 +223,6 @@ public class FeedGatewayService {
     public SequenceTracker getSequenceTracker() { return sequenceTracker; }
     public OrderBookManager getOrderBookManager() { return orderBookManager; }
     public InstrumentRegistry getInstrumentRegistry() { return instrumentRegistry; }
+    public ActivityLog getActivityLog() { return activityLog; }
     public boolean isRunning() { return running; }
 }

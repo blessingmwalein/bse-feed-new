@@ -39,23 +39,6 @@
         .nav { display: flex; gap: 12px; }
         .nav a { color: #58a6ff; text-decoration: none; padding: 6px 12px; border-radius: 4px; font-size: 14px; }
         .nav a:hover { background: #1c2128; }
-        /* Snapshot panel */
-        .snapshot-panel { background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 16px; margin-bottom: 20px; }
-        .snapshot-panel h3 { color: #d2a8ff; margin-bottom: 12px; font-size: 16px; }
-        .snapshot-controls { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
-        .btn { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600; }
-        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
-        .btn-connect { background: #238636; color: #fff; }
-        .btn-connect:hover:not(:disabled) { background: #2ea043; }
-        .btn-disconnect { background: #da3633; color: #fff; }
-        .btn-disconnect:hover:not(:disabled) { background: #f85149; }
-        .btn-request { background: #1f6feb; color: #fff; }
-        .btn-request:hover:not(:disabled) { background: #388bfd; }
-        .snapshot-input { background: #0d1117; border: 1px solid #30363d; color: #e6edf3; padding: 8px 12px; border-radius: 6px; font-size: 13px; width: 240px; }
-        .snapshot-input::placeholder { color: #484f58; }
-        .snapshot-log { background: #0d1117; border: 1px solid #21262d; border-radius: 6px; padding: 10px; max-height: 200px; overflow-y: auto; font-family: 'Consolas', monospace; font-size: 12px; color: #8b949e; }
-        .snapshot-log .entry { padding: 2px 0; }
-        .snapshot-status { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; margin-left: 12px; }
     </style>
 </head>
 <body>
@@ -79,26 +62,6 @@
         <div class="feed-status" id="feed-status">
             <div class="feed-card">
                 <h4>Loading feed status...</h4>
-            </div>
-        </div>
-
-        <!-- TCP Snapshot Channel -->
-        <div class="snapshot-panel">
-            <h3>TCP Snapshot Channel
-                <span class="snapshot-status">
-                    <span class="status-dot" id="snap-dot"></span>
-                    <span id="snap-state">Not Connected</span>
-                </span>
-            </h3>
-            <div class="snapshot-controls">
-                <button class="btn btn-connect" id="snap-connect-btn" onclick="snapshotConnect()">Connect</button>
-                <button class="btn btn-disconnect" id="snap-disconnect-btn" onclick="snapshotDisconnect()" disabled>Disconnect</button>
-                <input type="text" class="snapshot-input" id="snap-symbols" placeholder="Symbols (e.g. FNBB-EQO,BIHL-EQO)" />
-                <button class="btn btn-request" id="snap-request-btn" onclick="snapshotRequest()" disabled>Request Snapshot</button>
-                <button class="btn btn-request" id="snap-request-all-btn" onclick="snapshotRequestAll()" disabled>Request All</button>
-            </div>
-            <div class="snapshot-log" id="snap-log">
-                <div class="entry">Ready. Click Connect to open TCP snapshot channel.</div>
             </div>
         </div>
 
@@ -265,129 +228,6 @@
                 updateTable();
             }).catch(() => {});
         }, 2000);
-
-        // ==================== SNAPSHOT CONTROLS ====================
-
-        let snapConnected = false;
-
-        function snapLog(msg) {
-            const logDiv = document.getElementById('snap-log');
-            const entry = document.createElement('div');
-            entry.className = 'entry';
-            entry.textContent = new Date().toLocaleTimeString() + ' ' + msg;
-            logDiv.appendChild(entry);
-            logDiv.scrollTop = logDiv.scrollHeight;
-        }
-
-        function updateSnapButtons(connected) {
-            snapConnected = connected;
-            document.getElementById('snap-connect-btn').disabled = connected;
-            document.getElementById('snap-disconnect-btn').disabled = !connected;
-            document.getElementById('snap-request-btn').disabled = !connected;
-            document.getElementById('snap-request-all-btn').disabled = !connected;
-
-            const dot = document.getElementById('snap-dot');
-            const state = document.getElementById('snap-state');
-            if (connected) {
-                dot.className = 'status-dot green';
-                state.textContent = 'Connected';
-            } else {
-                dot.className = 'status-dot red';
-                state.textContent = 'Disconnected';
-            }
-        }
-
-        function snapshotConnect() {
-            snapLog('Connecting to snapshot channel...');
-            document.getElementById('snap-connect-btn').disabled = true;
-
-            fetch('/api/snapshot/connect', { method: 'POST' })
-                .then(r => r.json())
-                .then(data => {
-                    snapLog(data.message);
-                    updateSnapButtons(data.success);
-                    if (!data.success) {
-                        document.getElementById('snap-connect-btn').disabled = false;
-                    }
-                })
-                .catch(err => {
-                    snapLog('Error: ' + err.message);
-                    document.getElementById('snap-connect-btn').disabled = false;
-                });
-        }
-
-        function snapshotDisconnect() {
-            fetch('/api/snapshot/disconnect', { method: 'POST' })
-                .then(r => r.json())
-                .then(data => {
-                    snapLog(data.message);
-                    updateSnapButtons(false);
-                })
-                .catch(err => snapLog('Error: ' + err.message));
-        }
-
-        function snapshotRequest() {
-            const symbols = document.getElementById('snap-symbols').value.trim();
-            if (!symbols) {
-                snapLog('Enter symbol(s) first, e.g. FNBB-EQO');
-                return;
-            }
-            snapLog('Requesting snapshot for: ' + symbols + '...');
-            document.getElementById('snap-request-btn').disabled = true;
-
-            fetch('/api/snapshot/request?symbols=' + encodeURIComponent(symbols), { method: 'POST' })
-                .then(r => r.json())
-                .then(data => {
-                    snapLog(data.message);
-                    document.getElementById('snap-request-btn').disabled = !snapConnected;
-                    // Refresh snapshot status to get any log entries from server
-                    fetchSnapshotLog();
-                })
-                .catch(err => {
-                    snapLog('Error: ' + err.message);
-                    document.getElementById('snap-request-btn').disabled = !snapConnected;
-                });
-        }
-
-        function snapshotRequestAll() {
-            snapLog('Requesting snapshot for all instruments...');
-            document.getElementById('snap-request-all-btn').disabled = true;
-
-            fetch('/api/snapshot/request-all', { method: 'POST' })
-                .then(r => r.json())
-                .then(data => {
-                    snapLog(data.message);
-                    document.getElementById('snap-request-all-btn').disabled = !snapConnected;
-                    fetchSnapshotLog();
-                })
-                .catch(err => {
-                    snapLog('Error: ' + err.message);
-                    document.getElementById('snap-request-all-btn').disabled = !snapConnected;
-                });
-        }
-
-        function fetchSnapshotLog() {
-            fetch('/api/snapshot/status')
-                .then(r => r.json())
-                .then(data => {
-                    updateSnapButtons(data.connected);
-                    // Append any new server-side log entries
-                    if (data.log && data.log.length > 0) {
-                        const logDiv = document.getElementById('snap-log');
-                        data.log.forEach(entry => {
-                            const div = document.createElement('div');
-                            div.className = 'entry';
-                            div.textContent = '[server] ' + entry;
-                            logDiv.appendChild(div);
-                        });
-                        logDiv.scrollTop = logDiv.scrollHeight;
-                    }
-                })
-                .catch(() => {});
-        }
-
-        // Poll snapshot status
-        setInterval(fetchSnapshotLog, 10000);
     </script>
 </body>
 </html>

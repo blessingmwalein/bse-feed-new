@@ -1,6 +1,7 @@
 package com.bse.feed.web.controller;
 
 import com.bse.feed.core.engine.OrderBookManager;
+import com.bse.feed.core.event.ActivityLog;
 import com.bse.feed.core.model.FeedStatus;
 import com.bse.feed.core.model.OrderBook;
 import com.bse.feed.core.model.OrderBookLevel;
@@ -168,5 +169,50 @@ public class MarketDataRestController {
         dto.setTradingStatus(book.getSecurityTradingStatus());
 
         return dto;
+    }
+
+    // ==================== ACTIVITY LOG ====================
+
+    /**
+     * GET /api/activity-log?since={id} - Get feed activity log entries.
+     * If 'since' is provided, returns only entries newer than that id (incremental polling).
+     * Otherwise returns the most recent 50 entries.
+     */
+    @GetMapping("/activity-log")
+    public ResponseEntity<Map<String, Object>> getActivityLog(
+            @RequestParam(value = "since", required = false) Long since) {
+
+        ActivityLog log = gatewayService.getActivityLog();
+        Map<String, Object> result = new LinkedHashMap<>();
+
+        if (log == null) {
+            result.put("latestId", 0);
+            result.put("entries", Collections.emptyList());
+            return ResponseEntity.ok(result);
+        }
+
+        List<ActivityLog.Entry> entries;
+        if (since != null && since > 0) {
+            entries = log.getSince(since);
+        } else {
+            entries = log.getRecent(50);
+        }
+
+        // Convert to maps for JSON
+        List<Map<String, Object>> entryList = new ArrayList<>();
+        for (ActivityLog.Entry e : entries) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", e.getId());
+            m.put("timestamp", e.getTimestamp());
+            m.put("source", e.getSource());
+            m.put("type", e.getType());
+            m.put("detail", e.getDetail());
+            m.put("level", e.getLevel());
+            entryList.add(m);
+        }
+
+        result.put("latestId", log.getLatestId());
+        result.put("entries", entryList);
+        return ResponseEntity.ok(result);
     }
 }

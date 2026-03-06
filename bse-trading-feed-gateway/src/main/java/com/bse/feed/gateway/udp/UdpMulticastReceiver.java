@@ -1,6 +1,7 @@
 package com.bse.feed.gateway.udp;
 
 import com.bse.feed.core.engine.SequenceTracker;
+import com.bse.feed.core.event.ActivityLog;
 import com.bse.feed.core.event.MarketDataEvent;
 import com.bse.feed.core.event.MarketDataEventBus;
 import com.bse.feed.core.model.FeedStatus;
@@ -38,6 +39,7 @@ public class UdpMulticastReceiver implements Runnable {
     private final MarketDataEventBus eventBus;
     private final SequenceTracker sequenceTracker;
     private final FeedStatus feedStatus;
+    private ActivityLog activityLog;
 
     private volatile boolean running = false;
     private DatagramChannel channel;
@@ -54,6 +56,10 @@ public class UdpMulticastReceiver implements Runnable {
         this.eventBus = eventBus;
         this.sequenceTracker = sequenceTracker;
         this.feedStatus = new FeedStatus("UDP-" + feedName);
+    }
+
+    public void setActivityLog(ActivityLog activityLog) {
+        this.activityLog = activityLog;
     }
 
     /**
@@ -219,6 +225,10 @@ public class UdpMulticastReceiver implements Runnable {
 
             if (event == null) {
                 feedStatus.incrementDecodeErrors();
+                if (activityLog != null) {
+                    activityLog.warn(feedName, "DECODE_NULL",
+                            "Packet decoded to null (unhandled template), " + data.length + " bytes");
+                }
                 return;
             }
 
@@ -228,17 +238,63 @@ public class UdpMulticastReceiver implements Runnable {
 
             if (!shouldProcess) {
                 feedStatus.incrementDuplicates();
+                if (activityLog != null) {
+                    activityLog.info(feedName, "DUPLICATE",
+                            "Duplicate seq=" + event.getApplSeqNum() + " (already processed)");
+                }
                 return;
             }
 
-            // Update feed status counters
+            // Update feed status counters and log
             switch (event.getEventType()) {
-                case HEARTBEAT -> feedStatus.incrementHeartbeats();
-                case SNAPSHOT -> feedStatus.incrementSnapshots();
-                case INCREMENTAL_REFRESH -> feedStatus.incrementIncrementals();
-                case SECURITY_DEFINITION -> feedStatus.incrementSecurityDefinitions();
-                case SECURITY_STATUS -> feedStatus.incrementTradingStatuses();
-                default -> {}
+                case HEARTBEAT -> {
+                    feedStatus.incrementHeartbeats();
+                    if (activityLog != null) {
+                        activityLog.info(feedName, "HEARTBEAT",
+                                "Heartbeat seq=" + event.getApplSeqNum()
+                                        + " template=" + event.getTemplateId());
+                    }
+                }
+                case SNAPSHOT -> {
+                    feedStatus.incrementSnapshots();
+                    if (activityLog != null) {
+                        activityLog.info(feedName, "SNAPSHOT",
+                                "Snapshot seq=" + event.getApplSeqNum()
+                                        + " symbol=" + event.getSymbol()
+                                        + " entries=" + (event.getEntries() != null ? event.getEntries().size() : 0));
+                    }
+                }
+                case INCREMENTAL_REFRESH -> {
+                    feedStatus.incrementIncrementals();
+                    if (activityLog != null) {
+                        activityLog.info(feedName, "INCREMENTAL",
+                                "Incremental seq=" + event.getApplSeqNum()
+                                        + " symbol=" + event.getSymbol()
+                                        + " entries=" + (event.getEntries() != null ? event.getEntries().size() : 0));
+                    }
+                }
+                case SECURITY_DEFINITION -> {
+                    feedStatus.incrementSecurityDefinitions();
+                    if (activityLog != null) {
+                        activityLog.info(feedName, "SEC_DEF",
+                                "SecurityDefinition seq=" + event.getApplSeqNum()
+                                        + " symbol=" + event.getSymbol());
+                    }
+                }
+                case SECURITY_STATUS -> {
+                    feedStatus.incrementTradingStatuses();
+                    if (activityLog != null) {
+                        activityLog.info(feedName, "SEC_STATUS",
+                                "SecurityStatus seq=" + event.getApplSeqNum()
+                                        + " symbol=" + event.getSymbol());
+                    }
+                }
+                default -> {
+                    if (activityLog != null) {
+                        activityLog.info(feedName, event.getEventType().name(),
+                                "type=" + event.getEventType() + " seq=" + event.getApplSeqNum());
+                    }
+                }
             }
 
             feedStatus.setLastSequenceNumber(event.getApplSeqNum());
@@ -250,6 +306,9 @@ public class UdpMulticastReceiver implements Runnable {
             feedStatus.incrementDecodeErrors();
             feedStatus.setLastError(e.getMessage());
             feedStatus.setLastErrorTime(Instant.now());
+            if (activityLog != null) {
+                activityLog.error(feedName, "ERROR", e.getMessage());
+            }
             log.error("Error processing packet on {}: {}", feedName, e.getMessage(), e);
         } finally {
             long decodeTimeNanos = System.nanoTime() - startNanos;

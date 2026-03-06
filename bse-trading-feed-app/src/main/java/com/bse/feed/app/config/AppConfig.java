@@ -3,6 +3,7 @@ package com.bse.feed.app.config;
 import com.bse.feed.core.engine.InstrumentRegistry;
 import com.bse.feed.core.engine.OrderBookManager;
 import com.bse.feed.core.engine.SequenceTracker;
+import com.bse.feed.core.event.ActivityLog;
 import com.bse.feed.core.event.MarketDataEventBus;
 import com.bse.feed.gateway.FeedGatewayService;
 import com.bse.feed.gateway.decoder.FastMessageDecoder;
@@ -85,6 +86,11 @@ public class AppConfig {
     }
 
     @Bean
+    public ActivityLog activityLog() {
+        return new ActivityLog(500);
+    }
+
+    @Bean
     public SequenceTracker sequenceTracker() {
         return new SequenceTracker();
     }
@@ -118,13 +124,16 @@ public class AppConfig {
             MarketDataEventBus eventBus,
             SequenceTracker sequenceTracker,
             OrderBookManager orderBookManager,
-            InstrumentRegistry instrumentRegistry) {
-        return new FeedGatewayService(
+            InstrumentRegistry instrumentRegistry,
+            ActivityLog activityLog) {
+        FeedGatewayService service = new FeedGatewayService(
                 decoder, eventBus, sequenceTracker,
                 orderBookManager, instrumentRegistry,
                 udpGroupA, udpPortA, udpGroupB, udpPortB, udpInterface,
                 templatesPath
         );
+        service.setActivityLog(activityLog);
+        return service;
     }
 
     @Bean

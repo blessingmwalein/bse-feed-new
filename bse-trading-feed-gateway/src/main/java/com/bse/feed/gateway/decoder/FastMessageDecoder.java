@@ -82,7 +82,7 @@ public class FastMessageDecoder {
         }
 
         XMLMessageTemplateLoader loader = new XMLMessageTemplateLoader();
-        loader.setLoadTemplateIdFromAuxId(true);
+        loader.setLoadTemplateIdFromAuxId(false);
         MessageTemplate[] templates = loader.load(templateStream);
 
         templateRegistry = loader.getTemplateRegistry();
@@ -101,7 +101,7 @@ public class FastMessageDecoder {
      */
     public void initialize(InputStream templateStream) {
         XMLMessageTemplateLoader loader = new XMLMessageTemplateLoader();
-        loader.setLoadTemplateIdFromAuxId(true);
+        loader.setLoadTemplateIdFromAuxId(false);
         MessageTemplate[] templates = loader.load(templateStream);
 
         templateRegistry = loader.getTemplateRegistry();
@@ -123,9 +123,7 @@ public class FastMessageDecoder {
      */
     public MarketDataEvent decode(byte[] data, int offset, int length, String feedSource) {
         try {
-            // Skip stop-bit-encoded preamble (packet sequence number)
-            int preambleEnd = skipPreamble(data, offset, length);
-            ByteArrayInputStream bais = new ByteArrayInputStream(data, preambleEnd, length - (preambleEnd - offset));
+            ByteArrayInputStream bais = new ByteArrayInputStream(data, offset, length);
             FastDecoder decoder = new FastDecoder(decoderContext, bais);
 
             Message msg = decoder.readMessage();
@@ -160,9 +158,7 @@ public class FastMessageDecoder {
     public List<MarketDataEvent> decodeAll(byte[] data, String feedSource) {
         List<MarketDataEvent> events = new ArrayList<>();
         try {
-            // Skip stop-bit-encoded preamble (packet sequence number)
-            int preambleEnd = skipPreamble(data, 0, data.length);
-            ByteArrayInputStream bais = new ByteArrayInputStream(data, preambleEnd, data.length - preambleEnd);
+            ByteArrayInputStream bais = new ByteArrayInputStream(data);
             FastDecoder decoder = new FastDecoder(decoderContext, bais);
 
             while (bais.available() > 0) {
@@ -595,33 +591,6 @@ public class FastMessageDecoder {
         String text = getStringField(msg, "Text");
         log.warn("MarketDataRequestReject: reqId={}, reason={}, text={}", mdReqId, reason, text);
         return null;
-    }
-
-    // ==================== PREAMBLE HANDLING ====================
-
-    /**
-     * Skip the stop-bit-encoded preamble (packet sequence number) that precedes
-     * each FAST message in BSE UDP packets. The preamble is a variable-length
-     * integer where each byte's high bit (0x80) indicates the last byte.
-     *
-     * @param data   Raw packet bytes
-     * @param offset Start offset
-     * @param length Number of bytes available
-     * @return The offset immediately after the preamble (start of FAST PMAP)
-     */
-    private int skipPreamble(byte[] data, int offset, int length) {
-        int i = offset;
-        int end = offset + length;
-        while (i < end) {
-            if ((data[i] & 0x80) != 0) {
-                // Stop bit set — this is the last byte of the preamble
-                return i + 1;
-            }
-            i++;
-        }
-        // If no stop bit found, return original offset (no preamble to skip)
-        log.warn("No stop-bit preamble found in {} bytes, decoding from offset {}", length, offset);
-        return offset;
     }
 
     // ==================== FIELD EXTRACTION HELPERS ====================
