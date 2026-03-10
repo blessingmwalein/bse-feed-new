@@ -4,6 +4,7 @@ import com.bse.feed.core.engine.OrderBookManager;
 import com.bse.feed.core.model.FeedStatus;
 import com.bse.feed.core.model.OrderBook;
 import com.bse.feed.core.model.OrderBookLevel;
+import com.bse.feed.core.model.RecentMessageLog;
 import com.bse.feed.gateway.FeedGatewayService;
 import com.bse.feed.web.dto.FeedStatusDto;
 import com.bse.feed.web.dto.OrderBookDto;
@@ -102,6 +103,34 @@ public class MarketDataRestController {
         }
 
         return ResponseEntity.ok(statuses);
+    }
+
+    /**
+     * GET /api/messages - Get recent decoded message log for diagnostics.
+     * Shows ALL messages including heartbeats, with full decode details.
+     */
+    @GetMapping("/messages")
+    public ResponseEntity<List<Map<String, Object>>> getRecentMessages(
+            @RequestParam(defaultValue = "200") int limit) {
+        RecentMessageLog log = gatewayService.getMessageLog();
+        if (log == null) {
+            return ResponseEntity.ok(Collections.emptyList());
+        }
+
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (RecentMessageLog.LogEntry entry : log.getRecent(limit)) {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("time", entry.getTimestampFormatted());
+            map.put("feed", entry.getFeed());
+            map.put("type", entry.getType());
+            map.put("templateId", entry.getTemplateId());
+            map.put("applId", entry.getApplId());
+            map.put("seqNum", entry.getSeqNum());
+            map.put("symbol", entry.getSymbol());
+            map.put("details", entry.getDetails());
+            result.add(map);
+        }
+        return ResponseEntity.ok(result);
     }
 
     /**

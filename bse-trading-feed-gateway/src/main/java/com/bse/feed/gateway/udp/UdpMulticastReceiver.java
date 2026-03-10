@@ -4,6 +4,7 @@ import com.bse.feed.core.engine.SequenceTracker;
 import com.bse.feed.core.event.MarketDataEvent;
 import com.bse.feed.core.event.MarketDataEventBus;
 import com.bse.feed.core.model.FeedStatus;
+import com.bse.feed.core.model.RecentMessageLog;
 import com.bse.feed.gateway.decoder.FastMessageDecoder;
 
 import org.slf4j.Logger;
@@ -38,6 +39,7 @@ public class UdpMulticastReceiver implements Runnable {
     private final MarketDataEventBus eventBus;
     private final SequenceTracker sequenceTracker;
     private final FeedStatus feedStatus;
+    private final RecentMessageLog messageLog;
 
     private volatile boolean running = false;
     private DatagramChannel channel;
@@ -45,7 +47,8 @@ public class UdpMulticastReceiver implements Runnable {
 
     public UdpMulticastReceiver(String feedName, String multicastGroup, int port,
                                  String networkInterface, FastMessageDecoder decoder,
-                                 MarketDataEventBus eventBus, SequenceTracker sequenceTracker) {
+                                 MarketDataEventBus eventBus, SequenceTracker sequenceTracker,
+                                 RecentMessageLog messageLog) {
         this.feedName = feedName;
         this.multicastGroup = multicastGroup;
         this.port = port;
@@ -54,6 +57,7 @@ public class UdpMulticastReceiver implements Runnable {
         this.eventBus = eventBus;
         this.sequenceTracker = sequenceTracker;
         this.feedStatus = new FeedStatus("UDP-" + feedName);
+        this.messageLog = messageLog;
     }
 
     /**
@@ -219,8 +223,22 @@ public class UdpMulticastReceiver implements Runnable {
 
             if (event == null) {
                 feedStatus.incrementDecodeErrors();
+                log.warn("[{}] DECODE RETURNED NULL for {} bytes (hex: {})",
+                        feedName, data.length, bytesToHexPreview(data, 32));
+                if (messageLog != null) {
+                    messageLog.add(feedName, "DECODE_NULL", -1, "", 0, "",
+                            "null decode for " + data.length + " bytes");
+                }
                 return;
             }
+
+            // Log EVERY decoded message at INFO level for diagnostics
+            String symbol = event.getSymbol();
+            int entryCount = event.getEntries() != null ? event.getEntries().size() : 0;
+            String extraInfo = buildEventDetail(event);
+            log.info("[{}] DECODED: type={} tpl={} applId={} seq={} sym={} entries={} {}",
+                    feedName, event.getEventType(), event.getTemplateId(),
+                    event.getApplId(), event.getApplSeqNum(), symbol, entryCount, extraInfo);
 
             // Sequence check (Feed A/B dedup)
             boolean shouldProcess = sequenceTracker.processSequence(
@@ -228,6 +246,13 @@ public class UdpMulticastReceiver implements Runnable {
 
             if (!shouldProcess) {
                 feedStatus.incrementDuplicates();
+                log.info("[{}] DUPLICATE SKIPPED: type={} applId={} seq={}",
+                        feedName, event.getEventType(), event.getApplId(), event.getApplSeqNum());
+                if (messageLog != null) {
+                    messageLog.add(feedName, "DUPLICATE_" + event.getEventType(),
+                            event.getTemplateId(), event.getApplId(), event.getApplSeqNum(),
+                            symbol, "duplicate - skipped");
+                }
                 return;
             }
 
@@ -242,6 +267,13 @@ public class UdpMulticastReceiver implements Runnable {
             }
 
             feedStatus.setLastSequenceNumber(event.getApplSeqNum());
+
+            // Add to message log for dashboard visibility
+            if (messageLog != null) {
+                messageLog.add(feedName, event.getEventType().name(),
+                        event.getTemplateId(), event.getApplId(), event.getApplSeqNum(),
+                        symbol, extraInfo);
+            }
 
             // Publish to event bus
             eventBus.publish(event);
@@ -289,4 +321,69 @@ public class UdpMulticastReceiver implements Runnable {
     public boolean isRunning() { return running; }
     public FeedStatus getFeedStatus() { return feedStatus; }
     public String getFeedName() { return feedName; }
+    public RecentMessageLog getMessageLog() { return messageLog; }
+
+    /**
+     * Build a human-readable detail string for a decoded event.
+     */
+    private String buildEventDetail(MarketDataEvent event) {
+        StringBuilder sb = new StringBuilder();
+        switch (event.getEventType()) {
+            case HEARTBEAT -> {
+                if (event.getEntries() != null && !event.getEntries().isEmpty()) {
+                    var e = event.getEntries().get(0);
+                    sb.append("appId=").append(e.getApplId())
+                      .append(" newSeq=").append(e.getApplSeqNum());
+                }
+            }
+            case SNAPSHOT -> {
+                if (event.getEntries() != null && !event.getEntries().isEmpty()) {
+                    var e = event.getEntries().get(0);
+                    sb.append("symbol=").append(e.getSymbol())
+                      .append(" rptSeq=").append(e.getRptSeq())
+                      .append(" book=").append(e.getMdBookType())
+                      .append(" sub=").append(e.getSubBookType())
+                      .append(" entries=").append(event.getEntries().size());
+                }
+            }
+            case INCREMENTAL_REFRESH -> {
+                if (event.getEntries() != null && !event.getEntries().isEmpty()) {
+                    var e = event.getEntries().get(0);
+                    sb.append("symbol=").append(e.getSymbol())
+                      .append(" action=").append(e.getUpdateAction())
+                      .append(" type=").append(e.getEntryType())
+                      .append(" price=").append(e.getPrice())
+                      .append(" size=").append(e.getSize())
+                      .append(" entries=").append(event.getEntries().size());
+                }
+            }
+            case SECURITY_DEFINITION -> {
+                if (event.getEntries() != null && !event.getEntries().isEmpty()) {
+                    sb.append("symbol=").append(event.getEntries().get(0).getSymbol());
+                }
+            }
+            case SECURITY_STATUS -> {
+                if (event.getEntries() != null && !event.getEntries().isEmpty()) {
+                    var e = event.getEntries().get(0);
+                    sb.append("symbol=").append(e.getSymbol())
+                      .append(" tradingStatus=").append(e.getSecurityTradingStatus());
+                }
+            }
+            default -> sb.append(event.getEventType());
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Convert first N bytes to hex for diagnostic logging.
+     */
+    private static String bytesToHexPreview(byte[] data, int maxBytes) {
+        int len = Math.min(data.length, maxBytes);
+        StringBuilder sb = new StringBuilder(len * 2);
+        for (int i = 0; i < len; i++) {
+            sb.append(String.format("%02x", data[i] & 0xff));
+        }
+        if (data.length > maxBytes) sb.append("...");
+        return sb.toString();
+    }
 }

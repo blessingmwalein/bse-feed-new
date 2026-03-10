@@ -200,11 +200,12 @@ public class FastMessageDecoder {
             case TEMPLATE_QUOTE_REQUEST -> mapQuoteRequest(msg, feedSource);
             case TEMPLATE_MD_REQUEST_REJECT -> mapRequestReject(msg, feedSource);
             case TEMPLATE_LOGON, TEMPLATE_LOGOUT -> {
-                log.debug("Received session message: template={}", templateId);
+                log.info("Received session message: template={} ({})",
+                        templateId, templateId == TEMPLATE_LOGON ? "LOGON" : "LOGOUT");
                 yield null;
             }
             default -> {
-                log.debug("Unhandled template ID: {}", templateId);
+                log.info("Unhandled template ID: {}", templateId);
                 yield null;
             }
         };
@@ -217,7 +218,7 @@ public class FastMessageDecoder {
         long applSeqNum = getLongField(msg, "AppNewSeqNum");
 
         HeartbeatMessage hb = new HeartbeatMessage(applId, applSeqNum);
-        log.trace("Heartbeat: applId={}, seq={}", applId, applSeqNum);
+        log.info("Heartbeat decoded: applId={}, newSeqNum={}, feed={}", applId, applSeqNum, feedSource);
 
         MarketDataEntry entry = new MarketDataEntry();
         entry.setApplId(applId);
@@ -313,7 +314,7 @@ public class FastMessageDecoder {
             }
         }
 
-        log.debug("Snapshot: {} entries for {} seq={}", entries.size(), symbol, applSeqNum);
+        log.info("Snapshot: {} entries for {} seq={} applId={}", entries.size(), symbol, applSeqNum, applId);
         return new MarketDataEvent(
                 MarketDataEvent.EventType.SNAPSHOT,
                 entries, applSeqNum, applId, TEMPLATE_MARKET_DATA_SNAPSHOT, feedSource
@@ -444,7 +445,7 @@ public class FastMessageDecoder {
             }
         }
 
-        log.debug("IncrRefresh: {} entries, seq={}", entries.size(), applSeqNum);
+        log.info("IncrRefresh: {} entries, seq={} applId={}", entries.size(), applSeqNum, applId);
         return new MarketDataEvent(
                 MarketDataEvent.EventType.INCREMENTAL_REFRESH,
                 entries, applSeqNum, applId, TEMPLATE_INCREMENTAL_REFRESH, feedSource
@@ -464,7 +465,7 @@ public class FastMessageDecoder {
         entry.setTemplateId(TEMPLATE_SECURITY_DEFINITION);
         entry.setSymbol(getStringField(msg, "Symbol"));
 
-        log.debug("SecurityDefinition: {} seq={}", entry.getSymbol(), applSeqNum);
+        log.info("SecurityDefinition: {} seq={} applId={}", entry.getSymbol(), applSeqNum, applId);
         return new MarketDataEvent(
                 MarketDataEvent.EventType.SECURITY_DEFINITION,
                 Collections.singletonList(entry),
@@ -540,7 +541,7 @@ public class FastMessageDecoder {
         entry.setMdSubBookTypeRaw(subBookType);
         entry.setSubBookType(MDSubBookType.fromCode(subBookType));
 
-        log.debug("SecurityStatus: {} status={} seq={}", symbol, tradingStatus, applSeqNum);
+        log.info("SecurityStatus: {} status={} seq={} applId={}", symbol, tradingStatus, applSeqNum, applId);
         return new MarketDataEvent(
                 MarketDataEvent.EventType.SECURITY_STATUS,
                 Collections.singletonList(entry),

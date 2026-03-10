@@ -56,6 +56,50 @@
         .snapshot-log { background: #0d1117; border: 1px solid #21262d; border-radius: 6px; padding: 10px; max-height: 200px; overflow-y: auto; font-family: 'Consolas', monospace; font-size: 12px; color: #8b949e; }
         .snapshot-log .entry { padding: 2px 0; }
         .snapshot-status { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; margin-left: 12px; }
+        /* Message type colors */
+        .msg-type-heartbeat { color: #3fb950; }
+        .msg-type-snapshot { color: #58a6ff; }
+        .msg-type-incremental { color: #d2a8ff; }
+        .msg-type-secdef { color: #d29922; }
+        .msg-type-secstatus { color: #f0883e; }
+        .msg-type-news { color: #e6edf3; }
+        .msg-type-duplicate { color: #6e7681; }
+        .msg-type-error { color: #f85149; }
+        /* Tabbed panel */
+        .tab-panel { background: #161b22; border: 1px solid #21262d; border-radius: 8px; overflow: hidden; }
+        .tab-header { display: flex; border-bottom: 1px solid #21262d; background: #0d1117; }
+        .tab-btn { padding: 10px 20px; font-size: 13px; font-weight: 600; color: #8b949e; background: none; border: none; border-bottom: 2px solid transparent; cursor: pointer; letter-spacing: 0.4px; transition: color 0.15s, border-color 0.15s; }
+        .tab-btn:hover { color: #c9d1d9; }
+        .tab-btn.active { color: #58a6ff; border-bottom-color: #58a6ff; }
+        .tab-content { display: none; padding: 14px 16px; }
+        .tab-content.active { display: block; }
+        /* Console tab */
+        .console-controls { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; flex-wrap: wrap; }
+        .console-controls label { font-size: 12px; color: #8b949e; display: flex; align-items: center; gap: 4px; cursor: pointer; }
+        .console-controls label input { accent-color: #58a6ff; }
+        .console-stats { font-size: 12px; color: #8b949e; margin-left: auto; }
+        .console-actions { display: flex; gap: 6px; }
+        .console-stream { background: #0d1117; border: 1px solid #21262d; border-radius: 6px; height: 420px; overflow-y: auto; font-family: 'Consolas', 'Courier New', monospace; font-size: 12px; }
+        .console-table { width: 100%; border-collapse: collapse; }
+        .console-table th { text-align: left; padding: 5px 8px; border-bottom: 1px solid #21262d; color: #6e7681; font-size: 10px; text-transform: uppercase; position: sticky; top: 0; background: #0d1117; z-index: 1; white-space: nowrap; }
+        .console-table td { padding: 3px 8px; border-bottom: 1px solid #0d1117; vertical-align: top; white-space: nowrap; }
+        .console-table tr:hover td { background: #1c2128; }
+        .console-table td.details { white-space: normal; max-width: 340px; color: #6e7681; font-size: 11px; word-break: break-all; }
+        .console-table td.ts { color: #484f58; }
+        .console-row-new { animation: fadeIn 0.4s ease; }
+        @keyframes fadeIn { from { background: #1f2d40; } to { background: transparent; } }
+        .badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; font-weight: 700; letter-spacing: 0.5px; }
+        .badge-heartbeat { background: rgba(63,185,80,.18); color: #3fb950; }
+        .badge-snapshot  { background: rgba(88,166,255,.18); color: #58a6ff; }
+        .badge-incremental { background: rgba(210,168,255,.18); color: #d2a8ff; }
+        .badge-secdef    { background: rgba(210,153,34,.18); color: #d29922; }
+        .badge-secstatus { background: rgba(240,136,62,.18); color: #f0883e; }
+        .badge-duplicate { background: rgba(110,118,129,.18); color: #6e7681; }
+        .badge-error     { background: rgba(248,81,73,.18); color: #f85149; }
+        .badge-other     { background: rgba(201,209,217,.12); color: #c9d1d9; }
+        /* Instruments tab */
+        .instruments-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .instruments-header h3 { color: #58a6ff; font-size: 15px; }
     </style>
 </head>
 <body>
@@ -102,6 +146,9 @@
             </div>
         </div>
 
+        <!-- Message Log Panel -->
+        <div class="msg-log-panel" style="display:none"><!-- removed: replaced by console tab --></div>
+
         <!-- Summary Cards -->
         <div class="grid" style="margin-bottom: 20px;">
             <div class="card">
@@ -122,27 +169,76 @@
             </div>
         </div>
 
-        <!-- Instruments Table -->
-        <div class="card">
-            <h3>Active Instruments</h3>
-            <table class="symbols-table">
-                <thead>
-                    <tr>
-                        <th>Symbol</th>
-                        <th>Last Price</th>
-                        <th>Change</th>
-                        <th>%Change</th>
-                        <th>Best Bid</th>
-                        <th>Best Offer</th>
-                        <th>Volume</th>
-                        <th>Trades</th>
-                        <th>RptSeq</th>
-                    </tr>
-                </thead>
-                <tbody id="instruments-tbody">
-                    <tr><td colspan="9" style="text-align:center; color:#8b949e;">Waiting for data...</td></tr>
-                </tbody>
-            </table>
+        <!-- Tabbed: Console | Active Instruments -->
+        <div class="tab-panel">
+            <div class="tab-header">
+                <button class="tab-btn active" onclick="switchTab('console', this)">&#128196; Console</button>
+                <button class="tab-btn" onclick="switchTab('instruments', this)">&#128200; Active Instruments</button>
+            </div>
+
+            <!-- Console Tab -->
+            <div class="tab-content active" id="tab-console">
+                <div class="console-controls">
+                    <label><input type="checkbox" id="cf-heartbeat" checked> <span class="msg-type-heartbeat">Heartbeat</span></label>
+                    <label><input type="checkbox" id="cf-snapshot" checked> <span class="msg-type-snapshot">Snapshot</span></label>
+                    <label><input type="checkbox" id="cf-incremental" checked> <span class="msg-type-incremental">Incremental</span></label>
+                    <label><input type="checkbox" id="cf-secdef" checked> <span class="msg-type-secdef">SecDef</span></label>
+                    <label><input type="checkbox" id="cf-secstatus" checked> <span class="msg-type-secstatus">SecStatus</span></label>
+                    <label><input type="checkbox" id="cf-duplicate" checked> <span class="msg-type-duplicate">Duplicate</span></label>
+                    <label><input type="checkbox" id="cf-other" checked> Other</label>
+                    <div class="console-actions">
+                        <button class="btn btn-request" id="console-pause-btn" onclick="toggleConsolePause()" style="padding:4px 12px;font-size:12px;">&#9646;&#9646; Pause</button>
+                        <button class="btn" onclick="clearConsole()" style="padding:4px 12px;font-size:12px;background:#21262d;color:#c9d1d9;">&#10005; Clear</button>
+                    </div>
+                    <span class="console-stats" id="console-stats">0 msgs | live</span>
+                </div>
+
+                <div class="console-stream" id="console-stream">
+                    <table class="console-table">
+                        <thead>
+                            <tr>
+                                <th style="width:78px">Time</th>
+                                <th style="width:62px">Feed</th>
+                                <th style="width:148px">Type</th>
+                                <th style="width:44px">Tmpl</th>
+                                <th style="width:54px">ApplID</th>
+                                <th style="width:70px">Seq#</th>
+                                <th style="width:110px">Symbol</th>
+                                <th>Details</th>
+                            </tr>
+                        </thead>
+                        <tbody id="console-tbody">
+                            <tr><td colspan="8" style="text-align:center;color:#484f58;padding:20px;">Waiting for live messages via WebSocket…</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Active Instruments Tab -->
+            <div class="tab-content" id="tab-instruments">
+                <div class="instruments-header">
+                    <h3>Active Instruments</h3>
+                    <span style="font-size:12px;color:#8b949e;" id="instruments-count-label"></span>
+                </div>
+                <table class="symbols-table">
+                    <thead>
+                        <tr>
+                            <th>Symbol</th>
+                            <th>Last Price</th>
+                            <th>Change</th>
+                            <th>%Change</th>
+                            <th>Best Bid</th>
+                            <th>Best Offer</th>
+                            <th>Volume</th>
+                            <th>Trades</th>
+                            <th>RptSeq</th>
+                        </tr>
+                    </thead>
+                    <tbody id="instruments-tbody">
+                        <tr><td colspan="9" style="text-align:center; color:#8b949e;">Waiting for data...</td></tr>
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 
@@ -152,10 +248,22 @@
         let stompClient = null;
         const orderBooks = {};
 
+        // ==================== TABS ====================
+
+        function switchTab(name, btn) {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            btn.classList.add('active');
+            document.getElementById('tab-' + name).classList.add('active');
+            if (name === 'console') autoScroll = true; // resume scroll when switching to console
+        }
+
+        // ==================== WEBSOCKET ====================
+
         function connect() {
             const socket = new SockJS('/ws/market-data');
             stompClient = Stomp.over(socket);
-            stompClient.debug = null; // Disable debug logging
+            stompClient.debug = null;
 
             stompClient.connect({}, function(frame) {
                 document.getElementById('connection-dot').className = 'status-dot green';
@@ -166,12 +274,23 @@
                     const symbols = JSON.parse(msg.body);
                     symbols.forEach(sym => fetchOrderBook(sym));
                 });
+
+                // Subscribe to live decoded messages (console feed)
+                stompClient.subscribe('/topic/messages', function(msg) {
+                    const msgs = JSON.parse(msg.body);
+                    if (Array.isArray(msgs) && msgs.length > 0) {
+                        appendConsoleMessages(msgs);
+                    }
+                });
+
             }, function(error) {
                 document.getElementById('connection-dot').className = 'status-dot red';
                 document.getElementById('connection-text').textContent = 'Disconnected';
                 setTimeout(connect, 5000);
             });
         }
+
+        // ==================== ORDER BOOK ====================
 
         function fetchOrderBook(symbol) {
             fetch('/api/orderbook/' + encodeURIComponent(symbol))
@@ -208,6 +327,8 @@
             tbody.innerHTML = html;
 
             document.getElementById('instrument-count').textContent = symbols.length;
+            const lbl = document.getElementById('instruments-count-label');
+            if (lbl) lbl.textContent = symbols.length + ' symbol' + (symbols.length !== 1 ? 's' : '');
             document.getElementById('update-time').textContent = 'Updated: ' + new Date().toLocaleTimeString();
         }
 
@@ -235,8 +356,12 @@
                             <div class="metric"><span class="label">Messages</span><span class="value">${s.totalMessages.toLocaleString()}</span></div>
                             <div class="metric"><span class="label">Last Seq</span><span class="value">${s.lastSequence}</span></div>
                             <div class="metric"><span class="label">Heartbeats</span><span class="value">${s.heartbeats}</span></div>
+                            <div class="metric"><span class="label">Snapshots</span><span class="value">${s.snapshots || 0}</span></div>
                             <div class="metric"><span class="label">Incrementals</span><span class="value">${s.incrementals}</span></div>
+                            <div class="metric"><span class="label">SecDefs</span><span class="value">${s.securityDefinitions || 0}</span></div>
+                            <div class="metric"><span class="label">Duplicates</span><span class="value">${s.totalDuplicates || 0}</span></div>
                             <div class="metric"><span class="label">Gaps</span><span class="value">${s.totalGaps}</span></div>
+                            <div class="metric"><span class="label">Decode Errors</span><span class="value">${s.decodeErrors || 0}</span></div>
                             <div class="metric"><span class="label">Avg Decode</span><span class="value">${s.avgDecodeTimeMs.toFixed(3)} ms</span></div>
                         </div>`;
                     });
@@ -265,6 +390,136 @@
                 updateTable();
             }).catch(() => {});
         }, 2000);
+
+        // ==================== LIVE CONSOLE ====================
+
+        let consolePaused = false;
+        let autoScroll = true;
+        let consoleTotal = 0;
+        let consoleVisible = 0;
+        const MAX_CONSOLE_ROWS = 2000; // cap DOM rows to avoid memory issues
+
+        // Seed console from REST on page load so we don't start empty
+        function seedConsole() {
+            fetch('/api/messages?limit=200')
+                .then(r => r.json())
+                .then(msgs => {
+                    // REST returns newest-first; seed oldest-first
+                    appendConsoleMessages([...msgs].reverse(), true);
+                })
+                .catch(() => {});
+        }
+
+        function typeBadge(type) {
+            if (!type) return '<span class="badge badge-other">?</span>';
+            const t = type.toUpperCase();
+            if (t.includes('HEARTBEAT'))  return `<span class="badge badge-heartbeat">${type}</span>`;
+            if (t.includes('SNAPSHOT'))   return `<span class="badge badge-snapshot">${type}</span>`;
+            if (t.includes('INCREMENTAL'))return `<span class="badge badge-incremental">${type}</span>`;
+            if (t.includes('SECURITY_DEFINITION')) return `<span class="badge badge-secdef">${type}</span>`;
+            if (t.includes('SECURITY_STATUS'))     return `<span class="badge badge-secstatus">${type}</span>`;
+            if (t.includes('DUPLICATE')) return `<span class="badge badge-duplicate">${type}</span>`;
+            if (t.includes('ERROR') || t.includes('NULL')) return `<span class="badge badge-error">${type}</span>`;
+            return `<span class="badge badge-other">${type}</span>`;
+        }
+
+        function shouldShowConsoleMsg(type) {
+            if (!type) return document.getElementById('cf-other').checked;
+            const t = type.toUpperCase();
+            if (t.includes('HEARTBEAT'))           return document.getElementById('cf-heartbeat').checked;
+            if (t.includes('SNAPSHOT'))            return document.getElementById('cf-snapshot').checked;
+            if (t.includes('INCREMENTAL'))         return document.getElementById('cf-incremental').checked;
+            if (t.includes('SECURITY_DEFINITION')) return document.getElementById('cf-secdef').checked;
+            if (t.includes('SECURITY_STATUS'))     return document.getElementById('cf-secstatus').checked;
+            if (t.includes('DUPLICATE'))           return document.getElementById('cf-duplicate').checked;
+            return document.getElementById('cf-other').checked;
+        }
+
+        function appendConsoleMessages(msgs, isSeed) {
+            if (consolePaused && !isSeed) return;
+            const tbody = document.getElementById('console-tbody');
+
+            // Remove placeholder row if present
+            const placeholder = tbody.querySelector('td[colspan="8"]');
+            if (placeholder) placeholder.closest('tr').remove();
+
+            const frag = document.createDocumentFragment();
+            msgs.forEach(m => {
+                consoleTotal++;
+                if (!shouldShowConsoleMsg(m.type)) return;
+                consoleVisible++;
+
+                const tr = document.createElement('tr');
+                if (!isSeed) tr.className = 'console-row-new';
+                tr.innerHTML = `
+                    <td class="ts">${m.time || ''}</td>
+                    <td style="color:#8b949e">${m.feed || ''}</td>
+                    <td>${typeBadge(m.type)}</td>
+                    <td style="color:#6e7681;text-align:right">${m.templateId != null ? m.templateId : ''}</td>
+                    <td style="color:#8b949e">${m.applId || ''}</td>
+                    <td style="color:#8b949e;text-align:right;font-family:Consolas,monospace">${m.seqNum != null ? m.seqNum : ''}</td>
+                    <td style="color:#e6edf3;font-weight:600">${m.symbol || ''}</td>
+                    <td class="details">${escHtml(m.details || '')}</td>`;
+                frag.appendChild(tr);
+            });
+
+            tbody.appendChild(frag);
+
+            // Trim oldest rows if over cap
+            while (tbody.rows.length > MAX_CONSOLE_ROWS) {
+                tbody.deleteRow(0);
+            }
+
+            updateConsoleStats();
+
+            if (autoScroll && !isSeed) {
+                const stream = document.getElementById('console-stream');
+                stream.scrollTop = stream.scrollHeight;
+            }
+        }
+
+        function escHtml(s) {
+            return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+        }
+
+        function updateConsoleStats() {
+            const tbody = document.getElementById('console-tbody');
+            document.getElementById('console-stats').textContent =
+                tbody.rows.length.toLocaleString() + ' rows | ' +
+                (consolePaused ? '⏸ paused' : '⏵ live');
+        }
+
+        function toggleConsolePause() {
+            consolePaused = !consolePaused;
+            const btn = document.getElementById('console-pause-btn');
+            btn.textContent = consolePaused ? '▶ Resume' : '⏸ Pause';
+            btn.style.background = consolePaused ? '#da3633' : '#1f6feb';
+            updateConsoleStats();
+        }
+
+        function clearConsole() {
+            const tbody = document.getElementById('console-tbody');
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#484f58;padding:20px;">Console cleared — new messages will appear here.</td></tr>';
+            consoleTotal = 0;
+            consoleVisible = 0;
+            updateConsoleStats();
+        }
+
+        // Re-apply filters when checkboxes change (simple: clear + re-seed from server)
+        document.querySelectorAll('#tab-console input[type=checkbox]').forEach(cb => {
+            cb.addEventListener('change', () => {
+                clearConsole();
+                seedConsole();
+            });
+        });
+
+        // Pause auto-scroll when user manually scrolls up
+        document.getElementById('console-stream').addEventListener('scroll', function() {
+            const el = this;
+            autoScroll = (el.scrollTop + el.clientHeight >= el.scrollHeight - 20);
+        });
+
+        seedConsole();
 
         // ==================== SNAPSHOT CONTROLS ====================
 
@@ -340,7 +595,6 @@
                 .then(data => {
                     snapLog(data.message);
                     document.getElementById('snap-request-btn').disabled = !snapConnected;
-                    // Refresh snapshot status to get any log entries from server
                     fetchSnapshotLog();
                 })
                 .catch(err => {
@@ -371,7 +625,6 @@
                 .then(r => r.json())
                 .then(data => {
                     updateSnapButtons(data.connected);
-                    // Append any new server-side log entries
                     if (data.log && data.log.length > 0) {
                         const logDiv = document.getElementById('snap-log');
                         data.log.forEach(entry => {

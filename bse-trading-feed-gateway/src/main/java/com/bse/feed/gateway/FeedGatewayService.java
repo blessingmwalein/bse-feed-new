@@ -5,6 +5,7 @@ import com.bse.feed.core.engine.OrderBookManager;
 import com.bse.feed.core.engine.SequenceTracker;
 import com.bse.feed.core.event.MarketDataEventBus;
 import com.bse.feed.core.model.FeedStatus;
+import com.bse.feed.core.model.RecentMessageLog;
 import com.bse.feed.gateway.decoder.FastMessageDecoder;
 import com.bse.feed.gateway.udp.UdpMulticastReceiver;
 
@@ -41,6 +42,7 @@ public class FeedGatewayService {
     private SequenceTracker sequenceTracker;
     private OrderBookManager orderBookManager;
     private InstrumentRegistry instrumentRegistry;
+    private RecentMessageLog messageLog;
 
     // UDP receivers
     private UdpMulticastReceiver feedAReceiver;
@@ -129,14 +131,18 @@ public class FeedGatewayService {
             eventBus.addListener(instrumentRegistry);
         }
 
+        if (messageLog == null) {
+            messageLog = new RecentMessageLog(500);
+        }
+
         // Create UDP receivers
         feedAReceiver = new UdpMulticastReceiver(
                 "FeedA", multicastGroupFeedA, portFeedA, networkInterface,
-                decoder, eventBus, sequenceTracker);
+                decoder, eventBus, sequenceTracker, messageLog);
 
         feedBReceiver = new UdpMulticastReceiver(
                 "FeedB", multicastGroupFeedB, portFeedB, networkInterface,
-                decoder, eventBus, sequenceTracker);
+                decoder, eventBus, sequenceTracker, messageLog);
 
         log.info("Feed Gateway Service initialized");
     }
@@ -218,5 +224,6 @@ public class FeedGatewayService {
     public SequenceTracker getSequenceTracker() { return sequenceTracker; }
     public OrderBookManager getOrderBookManager() { return orderBookManager; }
     public InstrumentRegistry getInstrumentRegistry() { return instrumentRegistry; }
+    public RecentMessageLog getMessageLog() { return messageLog; }
     public boolean isRunning() { return running; }
 }

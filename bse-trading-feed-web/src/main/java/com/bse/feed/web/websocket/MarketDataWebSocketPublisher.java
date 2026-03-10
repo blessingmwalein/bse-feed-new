@@ -3,6 +3,8 @@ package com.bse.feed.web.websocket;
 import com.bse.feed.core.engine.OrderBookManager;
 import com.bse.feed.core.model.OrderBook;
 import com.bse.feed.core.model.OrderBookLevel;
+import com.bse.feed.core.model.RecentMessageLog;
+import com.bse.feed.gateway.FeedGatewayService;
 import com.bse.feed.web.dto.OrderBookDto;
 
 import org.slf4j.Logger;
@@ -12,9 +14,17 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
+import java.util.*;
+
 /**
- * Pushes order book updates to WebSocket clients at a fixed interval.
+ * Pushes order book updates and live decoded messages to WebSocket clients at a fixed interval.
  * Avoids overwhelming the dashboard with per-tick updates.
+ *
+ * Topics published:
+ *   /topic/orderbook/{symbol}  – full order book DTO on change
+ *   /topic/orderbook/updated   – set of dirty symbols
+ *   /topic/messages            – array of new decoded log entries since last push
  */
 @Component
 @EnableScheduling
@@ -24,14 +34,20 @@ public class MarketDataWebSocketPublisher implements OrderBookManager.OrderBookU
 
     private final SimpMessagingTemplate messagingTemplate;
     private final OrderBookManager orderBookManager;
+    private final FeedGatewayService feedGatewayService;
 
     // Track which symbols have been updated since last push
     private final java.util.Set<String> dirtySymbols = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
+    // Timestamp of the newest message we have already pushed – used as a cursor
+    private volatile Instant lastPushedMessageTime = Instant.EPOCH;
+
     public MarketDataWebSocketPublisher(SimpMessagingTemplate messagingTemplate,
-                                         OrderBookManager orderBookManager) {
+                                         OrderBookManager orderBookManager,
+                                         FeedGatewayService feedGatewayService) {
         this.messagingTemplate = messagingTemplate;
         this.orderBookManager = orderBookManager;
+        this.feedGatewayService = feedGatewayService;
         orderBookManager.addUpdateListener(this);
         log.info("WebSocket market data publisher initialized");
     }
@@ -42,26 +58,68 @@ public class MarketDataWebSocketPublisher implements OrderBookManager.OrderBookU
     }
 
     /**
-     * Push updated order books to WebSocket clients every 500ms.
+     * Push updated order books and new message-log entries to WebSocket clients every 500 ms.
      */
     @Scheduled(fixedRate = 500)
     public void pushUpdates() {
-        if (dirtySymbols.isEmpty()) return;
+        // --- order book updates ---
+        if (!dirtySymbols.isEmpty()) {
+            java.util.Set<String> symbols = new java.util.HashSet<>(dirtySymbols);
+            dirtySymbols.clear();
 
-        // Swap the dirty set
-        java.util.Set<String> symbols = new java.util.HashSet<>(dirtySymbols);
-        dirtySymbols.clear();
+            for (String symbol : symbols) {
+                OrderBook book = orderBookManager.getBook(symbol);
+                if (book != null) {
+                    OrderBookDto dto = toDto(book);
+                    messagingTemplate.convertAndSend("/topic/orderbook/" + symbol, dto);
+                }
+            }
+            messagingTemplate.convertAndSend("/topic/orderbook/updated", symbols);
+        }
 
-        for (String symbol : symbols) {
-            OrderBook book = orderBookManager.getBook(symbol);
-            if (book != null) {
-                OrderBookDto dto = toDto(book);
-                messagingTemplate.convertAndSend("/topic/orderbook/" + symbol, dto);
+        // --- live message console push ---
+        pushNewMessages();
+    }
+
+    /**
+     * Detect messages added to the log since last push and broadcast them.
+     * Entries in the log are stored newest-first; we walk the list collecting
+     * everything newer than {@code lastPushedMessageTime}, then reverse so the
+     * client receives them in chronological (oldest-first) order.
+     */
+    private void pushNewMessages() {
+        RecentMessageLog messageLog = feedGatewayService.getMessageLog();
+        if (messageLog == null) return;
+
+        List<RecentMessageLog.LogEntry> all = messageLog.getAll();
+        if (all.isEmpty()) return;
+
+        Instant cursor = lastPushedMessageTime;
+        Instant newLatest = cursor;
+        List<Map<String, Object>> newMsgs = new ArrayList<>();
+
+        for (RecentMessageLog.LogEntry entry : all) {
+            if (!entry.getTimestamp().isAfter(cursor)) break; // rest are older
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("time",       entry.getTimestampFormatted());
+            m.put("feed",       entry.getFeed());
+            m.put("type",       entry.getType());
+            m.put("templateId", entry.getTemplateId());
+            m.put("applId",     entry.getApplId());
+            m.put("seqNum",     entry.getSeqNum());
+            m.put("symbol",     entry.getSymbol());
+            m.put("details",    entry.getDetails());
+            newMsgs.add(m);
+            if (entry.getTimestamp().isAfter(newLatest)) {
+                newLatest = entry.getTimestamp();
             }
         }
 
-        // Also send a summary to the "all" topic
-        messagingTemplate.convertAndSend("/topic/orderbook/updated", symbols);
+        if (!newMsgs.isEmpty()) {
+            Collections.reverse(newMsgs); // send oldest-first
+            lastPushedMessageTime = newLatest;
+            messagingTemplate.convertAndSend("/topic/messages", newMsgs);
+        }
     }
 
     private OrderBookDto toDto(OrderBook book) {
